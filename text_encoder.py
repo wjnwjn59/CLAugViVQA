@@ -100,6 +100,12 @@ def text_processor(text, text_tokenizer):
                                return_token_type_ids=False,
                                return_tensors='pt')
 
+    # Ensure the output shape is (batch_size, len)
+    # if input_ids['input_ids'].shape[0] == 1:
+    #     print(input_ids['input_ids'].shape)
+    #     print(input_ids['attention_mask'].shape)
+    #     input_ids = {k: v.unsqueeze(0) for k, v in input_ids.items()}
+
     return input_ids
 
 

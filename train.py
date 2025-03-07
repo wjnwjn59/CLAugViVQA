@@ -46,19 +46,6 @@ def set_threads(n_threads, is_print_available_threads=False):
     torch.set_num_interop_threads(n_threads)
 
 
-def save_model(save_path, model):
-    try:
-        model_state_dict = model.module.state_dict()
-    except AttributeError:
-        model_state_dict = model.state_dict()
-
-    checkpoint = {
-        'model': model_state_dict,
-    }
-
-    torch.save(checkpoint, save_path)
-
-
 def free_vram(model, optimizer, scaler):
     del model
     del optimizer
@@ -81,6 +68,9 @@ def train(model,
           use_amp=True):
 
     best_val_loss = np.inf
+    best_val_cider = 0
+    best_val_results = None
+
     epochs_no_improve = 0
 
     train_loss_lst = []
@@ -91,8 +81,6 @@ def train(model,
     val_cider_lst = []
 
     for epoch in range(epochs):
-        model.update_epoch(epoch)
-
         total_correct = 0
         total_loss = 0
         total_samples = 0
@@ -104,15 +92,17 @@ def train(model,
                               unit='batch')
 
         model.train()
-        for batch in epoch_iterator:
+        for batch_idx, batch in enumerate(epoch_iterator):
+            model.update_epoch(epoch, batch_idx)
             text_inputs_lst = batch.pop('text_inputs_lst')
             img_inputs_lst = batch.pop('img_inputs')
             labels = batch.pop('labels')
-
+            
             text_inputs_lst = [
-                {k: v.squeeze().to(device, non_blocking=True)
-                 for k, v in input_ids.items()}
+                {k: v.squeeze(1).to(device, non_blocking=True)
+                    for k, v in input_ids.items()}
                 for input_ids in text_inputs_lst]
+                
             img_inputs_lst = [inputs.to(device, non_blocking=True)
                               for inputs in img_inputs_lst]
             labels = labels.to(device, non_blocking=True)
@@ -147,11 +137,14 @@ def train(model,
             epoch_iterator.set_postfix(
                 {'Batch Loss': loss.item()})
 
-        val_loss, val_acc, val_cider = evaluate(model=model,
-                                                val_loader=val_loader,
-                                                criterion=criterion,
-                                                idx2label=idx2label,
-                                                dataset_name=dataset_name)
+        val_results = evaluate(model=model,
+                               val_loader=val_loader,
+                               criterion=criterion,
+                               idx2label=idx2label,
+                               dataset_name=dataset_name)
+        val_loss = val_results['val_loss']
+        val_acc = val_results['val_acc']
+        val_cider = val_results['val_cider']
 
         train_loss = total_loss / total_samples
 
@@ -175,34 +168,36 @@ def train(model,
         val_acc_lst.append(val_acc)
         val_cider_lst.append(val_cider)
 
-        model.update_loss(val_loss)
+        log_data = {
+            'epoch': epoch + 1,
+            'train_loss': train_loss,
+            'train_acc': train_acc,
+            'train_cider': train_cider,
+            'val_results': val_results
+        }
+        wandb.log(log_data)
 
-        if is_log_result:
-            log_data = {
-                'epoch': epoch + 1,
-                'train_loss': train_loss,
-                'train_acc': train_acc,
-                'train_cider': train_cider,
-                'val_loss': val_loss,
-                'val_acc': val_acc,
-                'val_cider': val_cider
-            }
+        if patience > 0:
+            if (dataset_name == 'vivqa' and val_loss < best_val_loss) or (dataset_name == 'openvivqa' and val_cider > best_val_cider):
+                best_val_loss = val_loss
+                best_val_cider = val_cider
+                best_val_results = val_results
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+                if epochs_no_improve >= patience:
+                    print(f'Early stopping triggered after {epochs_no_improve} epochs without improvement.')
+                    break
 
-            wandb.log(log_data)
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            epochs_no_improve = 0
-            save_model(save_best_path, model, optimizer,
-                       scaler)
-        else:
-            epochs_no_improve += 1
-            if epochs_no_improve >= patience:
-                print(
-                    f'Early stopping triggered after {epochs_no_improve} epochs without improvement.')
-                break
-
-    return train_loss_lst, train_acc_lst, train_cider_lst, val_loss_lst, val_acc_lst, val_cider_lst
+    return {
+        'train_loss_lst': train_loss_lst, 
+        'train_acc_lst': train_acc_lst, 
+        'train_cider_lst': train_cider_lst, 
+        'val_loss_lst': val_loss_lst, 
+        'val_acc_lst': val_acc_lst, 
+        'val_cider_lst': val_cider_lst, 
+        'best_val_results': best_val_results
+    }
 
 
 def parse_args():
@@ -210,7 +205,7 @@ def parse_args():
     parser.add_argument('--seed', type=int,
                         default=pipeline_config.seed, help='Random seed')
     parser.add_argument('--project_name', type=str,
-                        default='vivqa_paraphrase_augmentation_new', help='Project name for wandb')
+                        default='vivqa_paraphrase_augmentation_bb', help='Project name for wandb')
     parser.add_argument('--exp_name', type=str,
                         help='Experiment name for wandb')
     parser.add_argument('--dataset_name', default=pipeline_config.dataset_name,
@@ -249,6 +244,12 @@ def parse_args():
                         default=pipeline_config.use_dynamic_thresh, help='Use dynamic threshold scaled by epochs')
     parser.add_argument('--start_threshold', type=float,
                         default=pipeline_config.start_threshold, help='Start dynamic threshold value')
+    parser.add_argument('--min_threshold', type=float,
+                        default=pipeline_config.min_threshold, help='Min threshold value')
+    parser.add_argument('--restart_threshold', type=lambda x: (str(x).lower() == 'true'),
+                        default=pipeline_config.restart_threshold, help='Is dynamic threshold has a restart interval')
+    parser.add_argument('--restart_epoch', type=int,
+                        default=pipeline_config.restart_epoch, help='Amount of epoch to restart')
     parser.add_argument('--save_ckpt_dir', type=str,
                         default='runs/train', help='Directory to save checkpoints')
     parser.add_argument('--is_log_result', type=lambda x: (str(x).lower() ==
@@ -261,7 +262,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-
     set_seed(args.seed)
     set_threads(4)
 
@@ -277,25 +277,6 @@ def main():
 
     label2idx, idx2label, answer_space_len = get_label_encoder(data_dir=args.data_dir,
                                                                dataset_name=args.dataset_name)
-
-    model = ViVQAModel(projection_dim=args.projection_dim,
-                       hidden_dim=args.hidden_dim,
-                       answer_space_len=answer_space_len,
-                       text_encoder_dict=text_encoder_dict,
-                       img_encoder_dict=img_encoder_dict,
-                       is_text_augment=args.is_text_augment,
-                       total_epochs=args.epochs,
-                       use_dynamic_thresh=args.use_dynamic_thresh,
-                       start_threshold=args.start_threshold,
-                       text_para_thresh=args.text_para_thresh
-                       )
-
-    model = torch.compile(model, mode='default')
-    model = model.to(device)
-
-    optimizer = torch.optim.AdamW(model.parameters(),
-                                  lr=args.learning_rate,
-                                  weight_decay=args.weight_decay)
 
     criterion = nn.CrossEntropyLoss()
     scaler = torch.amp.GradScaler(enabled=args.use_amp)
@@ -315,8 +296,6 @@ def main():
     train_loader = DataLoader(train_dataset,
                               batch_size=args.train_batch_size,
                               pin_memory=True,
-
-
                               shuffle=True)
 
     test_loader = DataLoader(test_dataset,
@@ -324,8 +303,33 @@ def main():
                              pin_memory=True,
                              shuffle=False)
 
+    model = ViVQAModel(projection_dim=args.projection_dim,
+                       hidden_dim=args.hidden_dim,
+                       answer_space_len=answer_space_len,
+                       text_encoder_dict=text_encoder_dict,
+                       img_encoder_dict=img_encoder_dict,
+                       is_text_augment=args.is_text_augment,
+                       total_epochs=args.epochs,
+                       use_dynamic_thresh=args.use_dynamic_thresh,
+                       start_threshold=args.start_threshold,
+                       min_threshold=args.min_threshold,
+                       text_para_thresh=args.text_para_thresh,
+                       steps_per_epoch=len(train_loader),
+                       restart_threshold=args.restart_threshold,
+                       restart_epoch=args.restart_epoch)
+
+    model = torch.compile(model, mode='default')
+    model = model.to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(),
+                                  lr=args.learning_rate,
+                                  weight_decay=args.weight_decay)
+
+    criterion = nn.CrossEntropyLoss()
+    scaler = torch.amp.GradScaler(enabled=args.use_amp)
+
     if not args.exp_name:
-        exp_name = f'CrossAttention_DefaultConfig'
+        exp_name = f'seed_{args.seed}_{args.dataset_name}_augmented:{args.is_text_augment}_cl:{args.use_dynamic_thresh}'
     else:
         exp_name = args.exp_name
 
@@ -340,62 +344,32 @@ def main():
     os.makedirs(weights_dirname, exist_ok=True)
     save_best_path = f'./{weights_dirname}/{exp_name}_best.pt'
 
-    train_loss_lst, train_acc_lst, train_cider_lst, val_loss_lst, val_acc_lst, val_cider_lst = train(model,
-                                                                                                     train_loader,
-                                                                                                     test_loader,
-                                                                                                     epochs=args.epochs,
-                                                                                                     criterion=criterion,
-                                                                                                     optimizer=optimizer,
-                                                                                                     scaler=scaler,
-                                                                                                     dataset_name=args.dataset_name,
-                                                                                                     idx2label=idx2label,
-                                                                                                     patience=args.patience,
-                                                                                                     save_best_path=save_best_path,
-                                                                                                     is_log_result=args.is_log_result,
-                                                                                                     use_amp=args.use_amp)
+    training_results = train(model,
+                            train_loader,
+                            test_loader,
+                            epochs=args.epochs,
+                            criterion=criterion,
+                            optimizer=optimizer,
+                            scaler=scaler,
+                            dataset_name=args.dataset_name,
+                            idx2label=idx2label,
+                            patience=args.patience,
+                            save_best_path=save_best_path,
+                            is_log_result=args.is_log_result,
+                            use_amp=args.use_amp)
 
     free_vram(model, optimizer, scaler)
 
-    best_model = ViVQAModel(projection_dim=args.projection_dim,
-                            hidden_dim=args.hidden_dim,
-                            answer_space_len=answer_space_len,
-                            text_encoder_dict=text_encoder_dict,
-                            img_encoder_dict=img_encoder_dict,
-                            is_text_augment=args.is_text_augment).to(device)
-
-    dev = torch.cuda.current_device()
-    checkpoint = torch.load(save_best_path,
-                            weights_only=True,
-                            map_location=lambda storage, loc: storage.cuda(dev))
-
-    state_dict = checkpoint['model']
-    new_state_dict = {}
-    for key, value in state_dict.items():
-        new_key = key.replace("_orig_mod.", "")
-        new_state_dict[new_key] = value
-
-    best_model.load_state_dict(new_state_dict)
-
-    test_loss, test_acc, test_cider = evaluate(model=best_model,
-                                               val_loader=test_loader,
-                                               criterion=criterion,
-                                               idx2label=idx2label,
-                                               dataset_name=args.dataset_name)
-
-    test_loss = round(test_loss, 4)
-    test_acc = round(test_acc, 4) if test_acc > 0 else test_acc
-    test_cider = round(test_cider, 4) if test_cider > 0 else test_cider
-
     args_dict = vars(args)
-    if args.is_log_result:
-        exp_table = wandb.Table(
-            columns=list(args_dict.keys()) +
-            ['test_loss', 'test_acc', 'test_cider'],
-            data=[list(args_dict.values()) + [test_loss, test_acc, test_cider]]
-        )
-        wandb.log({"Exp_table": exp_table})
 
-    print(f'Test acc: {test_acc}\tTest loss: {test_loss}')
+    exp_table = wandb.Table(
+        columns=list(args_dict.keys()) +
+        list(training_results['best_val_results'].keys()),
+        data=[
+            list(args_dict.values()) + list(training_results['best_val_results'].values())
+        ]
+    )
+    wandb.log({"Exp_table": exp_table})
 
 
 if __name__ == '__main__':

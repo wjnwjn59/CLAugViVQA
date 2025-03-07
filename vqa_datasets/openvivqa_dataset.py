@@ -12,7 +12,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 class OpenViVQADataset(Dataset):
     def __init__(self, data_dir, data_mode, text_encoder_dict, img_encoder_dict,
                  label_encoder=None, is_text_augment=True,
-                 n_text_paras=3, text_para_thresh=0.9, n_para_pool=20):
+                 n_text_paras=2, text_para_thresh=0.5, n_para_pool=20
+                 ):
         self.data_dir = data_dir
         self.data_mode = data_mode
 
@@ -23,6 +24,7 @@ class OpenViVQADataset(Dataset):
         if self.data_mode == 'train':
             train_filename = f'vlsp2023_train_data_{n_para_pool}_paraphrases.json'
             data_path = os.path.join(data_dir, 'OpenViVQA', train_filename)
+                
             if not os.path.exists(data_path):
                 print(
                     'Data training file with number of paraphrases pool not found! Select original file.')
@@ -91,10 +93,10 @@ class OpenViVQADataset(Dataset):
 
         img_pils = Image.open(img_paths).convert('RGB')
         label = self.label_encoder[answers]
-
+        
         img_inputs_lst = [self.img_encoder_dict['img_processor'](img_pils)]
         text_inputs_lst = [self.text_encoder_dict['text_processor'](questions)]
-
+        
         if self.data_mode == 'train' and self.is_text_augment:
             para_questions = self.para_questions[idx]
             selected_para_questions = random.sample(
