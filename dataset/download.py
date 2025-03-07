@@ -1,13 +1,13 @@
 import os
 import subprocess
-import gdown
+import run_gdown
 from dotenv import load_dotenv
 load_dotenv()
 
 def download_img_from_gdrive(gdrive_id, save_dir):
     output = f"{save_dir}/images.zip"
     print(f"Downloading images from Google Drive with id {gdrive_id} to {output}")
-    gdown.download(id=gdrive_id, output=output)
+    run_gdown.download(id=gdrive_id, output=output)
 
     unzip_result = subprocess.run(
         ["unzip", output, "-d", save_dir],

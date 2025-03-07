@@ -329,7 +329,7 @@ def main():
     scaler = torch.amp.GradScaler(enabled=args.use_amp)
 
     if not args.exp_name:
-        exp_name = f'beitv2_seed_{args.seed}_{args.dataset_name}_augmented:{args.is_text_augment}_cl:{args.use_dynamic_thresh}'
+        exp_name = f'seed_{args.seed}_{args.dataset_name}_augmented:{args.is_text_augment}_cl:{args.use_dynamic_thresh}'
     else:
         exp_name = args.exp_name
 
