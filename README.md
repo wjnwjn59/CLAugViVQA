@@ -1,19 +1,15 @@
 # Enhancing Vietnamese VQA through Curriculum Learning on Raw and Augmented Text Representations
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![Conference](https://img.shields.io/badge/AAAI--25%20Workshop-DUI-green)](https://aaai.org/Conferences/AAAI-25/)
 
 ## Description
 
-Welcome to the official repository for our paper, *Enhancing Vietnamese VQA through Curriculum Learning on Raw and Augmented Text Representations*, accepted at the AAAI-25 Workshop on Document Understanding and Intelligence. This project focuses on improving Visual Question Answering (VQA) in the Vietnamese language by employing curriculum learning techniques on both raw and augmented textual data.
+This is the **official repository** for our paper, *Enhancing Vietnamese VQA through Curriculum Learning on Raw and Augmented Text Representations*, accepted at the AAAI-25 Workshop on Document Understanding and Intelligence. This repository contains the codebase for improving **Vietnamese Visual Question Answering (VQA)** using **curriculum learning** on both raw and augmented textual data.
 
 ## Prerequisites
 
-Before setting up the environment, ensure you have the following installed:
-
-- **Anaconda**: For managing dependencies and environments. [Download Anaconda](https://www.anaconda.com/products/distribution)
-- **Python 3.11**: Ensure your environment uses Python version 3.11.
+We assume you have **Anaconda** installed for managing the virtual environment. If not, you can download it from [here](https://www.anaconda.com/products/distribution).
 
 To set up the environment:
 
